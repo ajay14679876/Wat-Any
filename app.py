@@ -46,6 +46,12 @@ def secret(name, default=None):
     return v or os.environ.get(name) or default
 
 
+@st.cache_resource
+def get_client(key):
+    # Kept alive in a cache: a throwaway Client gets garbage-collected and closes its connection mid-request.
+    return genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120000))
+
+
 def ask(system, payload, max_tokens):
     key = secret("GEMINI_API_KEY") or secret("GOOGLE_API_KEY")
     if not key:
@@ -56,7 +62,7 @@ def ask(system, payload, max_tokens):
     resp = None
     for attempt in range(3):
         try:
-            resp = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120000)).models.generate_content(model=model, contents=json.dumps(payload, ensure_ascii=False), config=cfg)
+            resp = get_client(key).models.generate_content(model=model, contents=json.dumps(payload, ensure_ascii=False), config=cfg)
             break
         except errors.APIError as e:
             code = getattr(e, "code", 0) or 0
