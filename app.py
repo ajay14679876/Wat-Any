@@ -52,11 +52,11 @@ def ask(system, payload, max_tokens):
         raise AIError("No API key is configured. Add GEMINI_API_KEY in the app's Secrets (see the Privacy & setup page).")
     model = secret("GEMINI_MODEL", "gemini-3.5-flash")
     cfg = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens, temperature=0.4,
-                                      response_mime_type="application/json", http_options=types.HttpOptions(timeout=120000))
+                                      response_mime_type="application/json")
     resp = None
     for attempt in range(3):
         try:
-            resp = genai.Client(api_key=key).models.generate_content(model=model, contents=json.dumps(payload, ensure_ascii=False), config=cfg)
+            resp = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120000)).models.generate_content(model=model, contents=json.dumps(payload, ensure_ascii=False), config=cfg)
             break
         except errors.APIError as e:
             code = getattr(e, "code", 0) or 0
@@ -70,11 +70,14 @@ def ask(system, payload, max_tokens):
             if code == 404:
                 raise AIError(f"Model '{model}' was not found. Set GEMINI_MODEL in Secrets to a model listed in Google AI Studio.")
             raise AIError(f"The AI service returned an error (status {code}). Please retry.")
-        except Exception:
+        except Exception as e:
+            detail = f"{type(e).__name__}: {str(e)[:250]}".replace(key, "***")
+            if isinstance(e, (TypeError, ValueError, AttributeError, KeyError)):
+                raise AIError(f"The request could not be built or sent ({detail}). Please send this message to the app's developer.")
             if attempt < 2:
                 time.sleep(3)
                 continue
-            raise AIError("Could not reach the AI service (network or timeout). Please retry.")
+            raise AIError(f"Could not complete the AI request ({detail}). Please retry.")
     cand = (resp.candidates or [None])[0] if resp else None
     if cand is not None and "MAX_TOKENS" in str(getattr(cand, "finish_reason", "")):
         raise AIError("The reply was cut off (too long). Retry, or analyse fewer responses at a time.")
